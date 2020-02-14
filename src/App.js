@@ -18,26 +18,38 @@ const useStyles = makeStyles(theme => ({
   },
   mentionShadow: {
     border: '1px solid #f00',
-    padding: '18.5px 14px',
+    margin: '18.5px 14px',
+    
     fontSize: '1rem',
     fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
     fontWeight: 400,
     lineHeight: '1.1875em',
     letterSpacing: '0.00938em',
 
-    color: 'transparent',
-    
+    // color: 'transparent',
+    color: '#c8c8c8',
+
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    // bottom: 0,
+    maxHeight: 190,
+
+    textAlign: 'start',
+    whiteSpace: 'pre-line',
+    overflow: 'scroll',
+  },
+  mentionHighlight: {
+    backgroundColor: '#d8dfea',
+  },
+  textArea: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-
-    textAlign: 'start'
-  },
-  mentionHighlight: {
-    backgroundColor: '#d8dfea'
-  },
+  }
 }));
 
 function Friend(name, id) {
@@ -92,84 +104,38 @@ function App() {
   const [entityList, setEntityList] = useState([]);
 
   const textAreaInput = useRef();
+  const mentionShadowRef = useRef();
   const lastSelectionInfo = useRef(new SelectionInfo(0, 0));
 
-  const plainText = entityList
-    .map(e => {
-      if (e.type === EntityType.char) {
-        return e.value;
-      } else if (e.type === EntityType.mention) {
-        return e.value.name
-      } else {
-        return '';
+  const intermediateEntityList = entityList
+    .flatMap((entity, index) => {
+      if (entity.type === EntityType.char) {
+        return {value: entity.value, index};
+      } else /* mention */ {
+        const charArr = entity.value.name.split('');
+        return charArr.map(char => ({value: char, index}));
       }
-    })
+    });
+  
+  const plainText = intermediateEntityList
+    .map(e => e.value)
     .join('');
 
+  const mentionShadowHtml = entityList.map(entity => {
+    if (entity.type === EntityType.char) {
+      return entity.value;
+    } else {
+      return `<span class="${classes.mentionHighlight}">${entity.value.name}</span>`
+    }
+  })
+  .join('');
+
   function getEntityObjByStringIndex(strIndex) {
-    if (plainText.length === entityList.length) {
-      return entityList[strIndex];
+    if (strIndex < 0 || strIndex >= intermediateEntityList.length) {
+      return null;
     }
 
-    let i = 0;
-    let c = 0; // 루프 돌면서 mention obj 만나면 mention name의 length - 1을 누적해서 더함. 
-
-    while(i < entityList.length) {
-      if (entityList[i].type === EntityType.char) {
-        if (i ===  strIndex - c) {
-          return entityList[i];
-        }
-      
-      } else if (entityList[i].type === EntityType.mention) {
-        const curEntityLength = entityList[i].length;
-        const mentionStartIdx = i + c;
-        const mentionEndIdx = i + curEntityLength + c;
-
-        if (mentionStartIdx <= strIndex && strIndex < mentionEndIdx) {
-          return entityList[i];
-
-        } else {
-          c += (curEntityLength - 1);                                                           
-        }
-      } 
-
-      i++;
-    }
-
-    return null;
-  }
-
-   function getEntityIndexByStringIndex(strIndex) {
-    if (plainText.length === entityList.length) {
-      return strIndex;
-    }
-
-    let i = 0;
-    let c = 0; // 루프 돌면서 mention obj 만나면 mention name의 length - 1을 누적해서 더함. 
-
-    while(i < entityList.length) {
-      if (entityList[i].type === EntityType.char) {
-        if (i ===  strIndex - c) {
-          return i;
-        }
-      
-      } else if (entityList[i].type === EntityType.mention) {
-        const curEntityLength = entityList[i].length;
-        const mentionStartIdx = i + c;
-        const mentionEndIdx = i + curEntityLength + c;
-
-        if (mentionStartIdx <= strIndex && strIndex < mentionEndIdx) {
-          return i;
-
-        } else {
-          c += (curEntityLength - 1);                                                           
-        }
-      } 
-
-      i++;
-    }
-
-    return null;
+    return entityList[intermediateEntityList[strIndex].index];
   }
 
   return (
@@ -180,7 +146,20 @@ function App() {
 
       <div className={classes.wrapper}>
 
+        <div 
+          ref={mentionShadowRef}
+          dangerouslySetInnerHTML={{__html: mentionShadowHtml}}
+          className={classes.mentionShadow}
+          style={{
+            // height: textAreaInput.current 
+            // ? textAreaInput.current.scrollHeight > textAreaInput.current.offsetHeight ? textAreaInput.current.offsetHeight : textAreaInput.current.scrollHeight 
+            // : 0
+            // height: textAreaInput.current.offsetHeight
+          }}
+        />
+
         <TextField
+          // className={classes.textArea}
           inputRef={textAreaInput}
           label='description'
           variant="outlined"
@@ -188,16 +167,28 @@ function App() {
           multiline
           rowsMax={10}
           inputProps={{
-            spellCheck: false
+            spellCheck: false,
           }}
           value={plainText}
+          onScroll={(e) => {
+            console.info('🤡scrollTop: ', e.target.scrollTop);
+            console.info('😈offsetHeight(textarea): ', e.target.offsetHeight);
+            console.info('😈offsetHeight(mentionShadow): ', mentionShadowRef.current.scrollHeight);
+
+            mentionShadowRef.current.scrollTop = e.target.scrollTop; 
+          }}
           onChange={(e) => {
             const newValue = e.target.value;
+            // mentionShadowRef.current.scrollHeight = e.target.scrollHeight; 
 
-            console.time("diff");
+            // console.info('🤡scrollTop: ', e.target.scrollTop)
+            // console.info('😈offsetHeight(textarea): ', e.target.offsetHeight)
+            // console.info('😈offsetHeight(mentionShadow): ', mentionShadowRef.current.offsetHeight)
+
+            
             const diffResult = dmp.diff_main(plainText, newValue);
 
-            let curLength = 0;
+            let curIndex = 0;
             diffResult.forEach(diff => {
               const diffType = diff[0];
               const value = diff[1];
@@ -205,21 +196,53 @@ function App() {
               switch (diffType) {
                 case DiffMatchPatch.DIFF_EQUAL:
                   // console.log('👍equal');
-                  curLength += value.length;
+                  curIndex += value.length;
                   break;
 
                 case DiffMatchPatch.DIFF_INSERT:
                   // console.log('🤘insert');
+                  
+                  /**
+                    
+                  
+                   */
+
                   for (let i = 0; i < value.length; i++) {
-                    entityList.splice(curLength + i, 0, new TextEntity(EntityType.char, value[i]));
+
+                    if (intermediateEntityList.length === 0) {
+                      entityList.splice(0, 0, new TextEntity(EntityType.char, value[i]));
+                    } else {
+                      const insertIndex = intermediateEntityList[curIndex - 1].index + i + 1;
+                      entityList.splice(insertIndex, 0, new TextEntity(EntityType.char, value[i]));
+                    }
+
                   }
-                  curLength += value.length;
+                  curIndex += value.length;
                   break;
 
                 case DiffMatchPatch.DIFF_DELETE:
                   // console.log('🤟delete');
+                  
+                  // mention에 변경 가해지면 멘션 해제 시키는 게 더 싱크 맞추기 쉬울듯?
+
+                  // console.log('====================================');
+                  // console.info('😈curIndex:', curIndex);
+                  // console.info('🦋', intermediateEntityList);
+                  
                   for (let i = 0; i < value.length; i++) {
-                    entityList.splice(curLength, 1);
+
+                    if (curIndex === 0) {
+                      entityList.splice(0, 1);
+                    } else {
+                      const deleteIndex = intermediateEntityList[curIndex - 1].index + 1;
+                      // console.info('👅', deleteIndex);
+
+                      if (entityList[deleteIndex - 1].type === EntityType.mention) {
+                        entityList.splice(deleteIndex - 1, 1);
+                      } else {
+                        entityList.splice(deleteIndex, 1);
+                      }
+                    }
                   }
 
                   break;
@@ -228,7 +251,7 @@ function App() {
               }
             });
 
-            console.timeEnd("diff");
+            
             setEntityList([...entityList]);
           }}
           
@@ -238,8 +261,6 @@ function App() {
             // console.log(`===========\n🦊on select`);
             // console.log(`start: ${textAreaInput.current.selectionStart}`);
             // console.log(`end: ${textAreaInput.current.selectionEnd}`);
-
-            // todo: entityList에 인덱스로 접근할 때 mention type의 length를 고려
 
             function setNull() {
               if (tempMentionUsername !== null) {
@@ -262,10 +283,11 @@ function App() {
             }  
 
             const isCursorPositionBeforeEndOfString = selectionStart < entityList.length;
-            const entityObjAtSelectionStart = getEntityObjByStringIndex(selectionStart);
-            const entityObjRightBeforeAtSelectionStart = getEntityObjByStringIndex(selectionStart - 1);
 
             if (isCursorPositionBeforeEndOfString === true) {
+              const entityObjAtSelectionStart = getEntityObjByStringIndex(selectionStart);
+              const entityObjRightBeforeAtSelectionStart = getEntityObjByStringIndex(selectionStart - 1);
+
               const isVeryNextCharWhiteSpace = 
                 entityObjAtSelectionStart.type === EntityType.char 
                 && (entityObjAtSelectionStart.value === ' ' || entityObjAtSelectionStart.value === '\n');
@@ -281,6 +303,8 @@ function App() {
 
             } else {
               // cursor is at end of string
+              const entityObjRightBeforeAtSelectionStart = getEntityObjByStringIndex(selectionStart - 1);
+
               const isLastCharNewLine = 
                 entityObjRightBeforeAtSelectionStart.type === EntityType.char 
                 && entityObjRightBeforeAtSelectionStart.value === '\n';
@@ -324,12 +348,6 @@ function App() {
 
               curTempMentionUsername = entityObjAtCurIndex.value + curTempMentionUsername;
             }
-
-            // 현재 커서 위치에서 최대 맥스 length 까지 뒤로 가면서 @가 있나 체크.
-            // 있으면 반복을 거기서 중단하고 @와 현재 커서 사이에 있는 스트링을 추출, 친구 검색.
-
-            // @가 없거나, 맥스 length만큼 돌기 전에 인덱스가 0이 되거나, 중간에 char type이 아닌 원소를 만나면
-            // 그대로 함수 리턴.
           }}
         />
       </div>
@@ -338,13 +356,14 @@ function App() {
         <FriendList 
           onClick={(friend) => {
             const selectionStart = lastSelectionInfo.current.start;
-            const entityIndex = getEntityIndexByStringIndex(selectionStart);
-            console.info('🤢', selectionStart);
-            console.info('🐽', entityIndex);
-            entityList.splice(entityIndex - tempMentionUsername.length - 1, tempMentionUsername.length + 1);
-            entityList.splice(entityIndex - tempMentionUsername.length - 1, 0, new TextEntity(EntityType.mention, friend));
-            setEntityList([...entityList]);
+            const tempMentionLastIndex = intermediateEntityList[selectionStart - 1].index;
+            const tempMentionFirstIndex = tempMentionLastIndex - tempMentionUsername.length;
 
+            // @tempMentionUsername 문자열 제거 -> Mention Obj로 대체
+            entityList.splice(tempMentionFirstIndex, tempMentionUsername.length + 1);
+            entityList.splice(tempMentionFirstIndex, 0, new TextEntity(EntityType.mention, friend));
+
+            setEntityList([...entityList]);
           }}
           username={tempMentionUsername}
         />
