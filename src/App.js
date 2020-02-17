@@ -17,39 +17,32 @@ const useStyles = makeStyles(theme => ({
     border: '1px solid #000'
   },
   mentionShadow: {
-    border: '1px solid #f00',
-    margin: '18.5px 14px',
-    
+    // material ui outlined textfield 스타일 그대로 적용.
     fontSize: '1rem',
     fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
     fontWeight: 400,
     lineHeight: '1.1875em',
-    letterSpacing: '0.00938em',
-
-    // color: 'transparent',
-    color: '#c8c8c8',
+    textAlign: 'start',
+    whiteSpace: 'pre-wrap',
+    overflow: 'scroll',
+    letterSpacing: 'normal',
+    wordSpacing: 'normal',
+    textTransform: 'none',
+    overflowWrap: 'break-word',
+    textIndent: 0,
+    textShadow: 'none',
+    textRendering: 'auto',
+    color: 'transparent',
 
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    // bottom: 0,
-    maxHeight: 190,
-
-    textAlign: 'start',
-    whiteSpace: 'pre-line',
-    overflow: 'scroll',
+    top: 18.5,
+    left: 14,
+    right: 14,
+    bottom: 18.5,
   },
   mentionHighlight: {
     backgroundColor: '#d8dfea',
   },
-  textArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  }
 }));
 
 function Friend(name, id) {
@@ -125,10 +118,10 @@ function App() {
     if (entity.type === EntityType.char) {
       return entity.value;
     } else {
-      return `<span class="${classes.mentionHighlight}">${entity.value.name}</span>`
+      return `<span class="${classes.mentionHighlight}">${entity.value.name}&#8203;&#8203;</span>`
     }
   })
-  .join('');
+  .join('')+'<br>';
 
   function getEntityObjByStringIndex(strIndex) {
     if (strIndex < 0 || strIndex >= intermediateEntityList.length) {
@@ -150,16 +143,9 @@ function App() {
           ref={mentionShadowRef}
           dangerouslySetInnerHTML={{__html: mentionShadowHtml}}
           className={classes.mentionShadow}
-          style={{
-            // height: textAreaInput.current 
-            // ? textAreaInput.current.scrollHeight > textAreaInput.current.offsetHeight ? textAreaInput.current.offsetHeight : textAreaInput.current.scrollHeight 
-            // : 0
-            // height: textAreaInput.current.offsetHeight
-          }}
         />
-
+        
         <TextField
-          // className={classes.textArea}
           inputRef={textAreaInput}
           label='description'
           variant="outlined"
@@ -170,13 +156,7 @@ function App() {
             spellCheck: false,
           }}
           value={plainText}
-          onScroll={(e) => {
-            console.info('🤡scrollTop: ', e.target.scrollTop);
-            console.info('😈offsetHeight(textarea): ', e.target.offsetHeight);
-            console.info('😈offsetHeight(mentionShadow): ', mentionShadowRef.current.scrollHeight);
-
-            mentionShadowRef.current.scrollTop = e.target.scrollTop; 
-          }}
+          onScroll={(e) => mentionShadowRef.current.scrollTop = e.target.scrollTop}
           onChange={(e) => {
             const newValue = e.target.value;
             // mentionShadowRef.current.scrollHeight = e.target.scrollHeight; 
@@ -256,12 +236,6 @@ function App() {
           }}
           
           onSelect={() => {
-            // cursor 위치 변경 및 셀렉션 레인지 변경 시 항시 호출됨.
-
-            // console.log(`===========\n🦊on select`);
-            // console.log(`start: ${textAreaInput.current.selectionStart}`);
-            // console.log(`end: ${textAreaInput.current.selectionEnd}`);
-
             function setNull() {
               if (tempMentionUsername !== null) {
                 setTempMentionUsername(null);
@@ -350,6 +324,8 @@ function App() {
             }
           }}
         />
+
+
       </div>
 
       {tempMentionUsername !== null &&
