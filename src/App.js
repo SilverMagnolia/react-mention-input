@@ -13,9 +13,6 @@ const useStyles = makeStyles(theme => ({
      width: 250,
      position: 'relative',
   },
-  insertText: {
-    border: '1px solid #000'
-  },
   mentionShadow: {
     // material ui outlined textfield 스타일 그대로 적용.
     fontSize: '1rem',
@@ -94,6 +91,8 @@ function App() {
   const classes = useStyles();
 
   const [tempMentionUsername, setTempMentionUsername] = useState(null);
+
+  // todo: 인덱스 맞추기 어렵다면 맞출 필요가 없도록 데이터를 모델링해볼까?
   const [entityList, setEntityList] = useState([]);
 
   const textAreaInput = useRef();
@@ -118,7 +117,7 @@ function App() {
     if (entity.type === EntityType.char) {
       return entity.value;
     } else {
-      return `<span class="${classes.mentionHighlight}">${entity.value.name}&#8203;&#8203;</span>`
+      return `<span class="${classes.mentionHighlight}">${entity.value.name}</span>`
     }
   })
   .join('')+'<br>';
@@ -165,7 +164,6 @@ function App() {
             // console.info('😈offsetHeight(textarea): ', e.target.offsetHeight)
             // console.info('😈offsetHeight(mentionShadow): ', mentionShadowRef.current.offsetHeight)
 
-            
             const diffResult = dmp.diff_main(plainText, newValue);
 
             let curIndex = 0;
@@ -181,11 +179,6 @@ function App() {
 
                 case DiffMatchPatch.DIFF_INSERT:
                   // console.log('🤘insert');
-                  
-                  /**
-                    
-                  
-                   */
 
                   for (let i = 0; i < value.length; i++) {
 
@@ -203,14 +196,11 @@ function App() {
                 case DiffMatchPatch.DIFF_DELETE:
                   // console.log('🤟delete');
                   
-                  // mention에 변경 가해지면 멘션 해제 시키는 게 더 싱크 맞추기 쉬울듯?
-
                   // console.log('====================================');
                   // console.info('😈curIndex:', curIndex);
                   // console.info('🦋', intermediateEntityList);
                   
                   for (let i = 0; i < value.length; i++) {
-
                     if (curIndex === 0) {
                       entityList.splice(0, 1);
                     } else {
@@ -331,6 +321,8 @@ function App() {
       {tempMentionUsername !== null &&
         <FriendList 
           onClick={(friend) => {
+            friend.name += '\u200B\u200B';
+
             const selectionStart = lastSelectionInfo.current.start;
             const tempMentionLastIndex = intermediateEntityList[selectionStart - 1].index;
             const tempMentionFirstIndex = tempMentionLastIndex - tempMentionUsername.length;
