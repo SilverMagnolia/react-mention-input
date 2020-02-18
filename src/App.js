@@ -86,48 +86,54 @@ function TextEntity(type, value) {
   }
 }
 
-
 function App() {
   const classes = useStyles();
 
   const [tempMentionUsername, setTempMentionUsername] = useState(null);
 
-  // todo: 인덱스 맞추기 어렵다면 맞출 필요가 없도록 데이터를 모델링해볼까?
+  // 데이터 소스. plainText와 멘션 하이라이트 처리를 위한 html로 변환됨.
   const [entityList, setEntityList] = useState([]);
 
   const textAreaInput = useRef();
   const mentionShadowRef = useRef();
   const lastSelectionInfo = useRef(new SelectionInfo(0, 0));
 
+  // entityList와 plainText 만으로 멘션처리를 하기에는 이 둘의 길이가 달라서 인덱스 처리가 복잡하기 때문에
+  // entityList <-> plainText 중간에 위치할 배열을 생성.
+  // plainText의 길이와 동일하며, 각각의 원소는 타입과 하나의 문자 그리고 entityList에 대응되는 인덱스를 갖고 있음.
+  // 멘션의 경우 멘션 길이, 멘션 인덱스를 추가로 가짐.
   const intermediateEntityList = entityList
-    .flatMap((entity, index) => {
+    .flatMap((entity, entityIndex) => {
       if (entity.type === EntityType.char) {
-        return {value: entity.value, index};
+        return {value: entity.value, type: EntityType.char, entityIndex};
       } else /* mention */ {
-        const charArr = entity.value.name.split('');
-        return charArr.map(char => ({value: char, index}));
+        const charArr = (entity.value.name).split('');
+        return charArr.map((char, mentionIndex) => ({value: char, type: EntityType.mention, entityIndex, mentionIndex, mentionLength: charArr.length}));
       }
     });
   
+  // textarea에 보일 스트링
   const plainText = intermediateEntityList
     .map(e => e.value)
     .join('');
 
-  const mentionShadowHtml = entityList.map(entity => {
-    if (entity.type === EntityType.char) {
-      return entity.value;
-    } else {
-      return `<span class="${classes.mentionHighlight}">${entity.value.name}</span>`
-    }
-  })
-  .join('')+'<br>';
+  // 멘션 하이라이트 처리를 위한 html
+  const mentionShadowHtml = entityList
+    .map(entity => {
+      if (entity.type === EntityType.char) {
+        return entity.value;
+      } else {
+        return `<span class="${classes.mentionHighlight}">${entity.value.name}</span>`
+      }
+    })
+    .join('')+'<br>';
 
   function getEntityObjByStringIndex(strIndex) {
     if (strIndex < 0 || strIndex >= intermediateEntityList.length) {
       return null;
     }
 
-    return entityList[intermediateEntityList[strIndex].index];
+    return entityList[intermediateEntityList[strIndex].entityIndex];
   }
 
   return (
@@ -157,75 +163,117 @@ function App() {
           value={plainText}
           onScroll={(e) => mentionShadowRef.current.scrollTop = e.target.scrollTop}
           onChange={(e) => {
+
+            console.time('diff');
+
+            // diffResult에 따라 newEntityList 구성 -> 스테이트 변경. 
+
             const newValue = e.target.value;
-            // mentionShadowRef.current.scrollHeight = e.target.scrollHeight; 
-
-            // console.info('🤡scrollTop: ', e.target.scrollTop)
-            // console.info('😈offsetHeight(textarea): ', e.target.offsetHeight)
-            // console.info('😈offsetHeight(mentionShadow): ', mentionShadowRef.current.offsetHeight)
-
+            const newEntityList = [];
             const diffResult = dmp.diff_main(plainText, newValue);
 
-            let curIndex = 0;
+            let curIndexOfIntermediateEntityList = 0;
+
             diffResult.forEach(diff => {
               const diffType = diff[0];
-              const value = diff[1];
-
+              const diffValue = diff[1];
+              
               switch (diffType) {
                 case DiffMatchPatch.DIFF_EQUAL:
-                  // console.log('👍equal');
-                  curIndex += value.length;
-                  break;
 
-                case DiffMatchPatch.DIFF_INSERT:
-                  // console.log('🤘insert');
+                  let i = 0;
 
-                  for (let i = 0; i < value.length; i++) {
+                  while (i < diffValue.length) {
+                    const curIntermediateEntity = intermediateEntityList[curIndexOfIntermediateEntityList + i];
 
-                    if (intermediateEntityList.length === 0) {
-                      entityList.splice(0, 0, new TextEntity(EntityType.char, value[i]));
-                    } else {
-                      const insertIndex = intermediateEntityList[curIndex - 1].index + i + 1;
-                      entityList.splice(insertIndex, 0, new TextEntity(EntityType.char, value[i]));
-                    }
+                    if (curIntermediateEntity.type === EntityType.char) {
+                      // char 처리
+                      newEntityList.push(new TextEntity(EntityType.char, curIntermediateEntity.value));  
+                      i++;
 
-                  }
-                  curIndex += value.length;
-                  break;
+                    } else if (curIntermediateEntity.type === EntityType.mention) {
 
-                case DiffMatchPatch.DIFF_DELETE:
-                  // console.log('🤟delete');
-                  
-                  // console.log('====================================');
-                  // console.info('😈curIndex:', curIndex);
-                  // console.info('🦋', intermediateEntityList);
-                  
-                  for (let i = 0; i < value.length; i++) {
-                    if (curIndex === 0) {
-                      entityList.splice(0, 1);
-                    } else {
-                      const deleteIndex = intermediateEntityList[curIndex - 1].index + 1;
-                      // console.info('👅', deleteIndex);
+                      // mention: 두 가지 처리로 나뉨. 
+                      //
+                      // 1. diffValue 안에 curIntermediateEntity와 짝이되는 모든 멘션 정보가 담겨 있는가?
+                      //    => ex) 원문       : 'Hello World *Tony*! *BG*! Nice to meet you!'
+                      //           diffValue : 'Hello World *Tony*' || '*BG* Nice to meet you!'
+                      //
+                      // 2. diffValue 안에 curIntermediateEntity와 짝이되는 모든 멘션 정보의 일부만 담겨 있는가?
+                      //    => ex) 원문       : 'Hello World *Tony*'
+                      //           diffValue : 'Hello world *To' || 'ny*'
+                      //
+                      // 1의 경우 이전 멘션의 정보를 그대로 newEntityList에 푸쉬.
+                      // 2의 경우 쪼개진 멘션 사이에 무언가가 인서트 되거나, 멘션의 일부가 삭제됐다는 의미이므로 일반 문자 타입으로 변환 후 newEntityList에 푸쉬함.
+                      
+                      const mentionLength = curIntermediateEntity.mentionLength;
 
-                      if (entityList[deleteIndex - 1].type === EntityType.mention) {
-                        entityList.splice(deleteIndex - 1, 1);
+                      const containsAllMentionNameInThisDiffValue = 
+                        curIntermediateEntity.mentionIndex === 0 
+                        && diffValue[i + mentionLength - 1] !== undefined;
+                        
+                      if (containsAllMentionNameInThisDiffValue === true) {
+                        newEntityList.push(entityList[curIntermediateEntity.entityIndex]);  
+                        i += curIntermediateEntity.mentionLength;
+
                       } else {
-                        entityList.splice(deleteIndex, 1);
+                        let dividedMentionName = [];
+                        for (let j = i; j < diffValue.length; j++) {
+                          const isJthCharMention = intermediateEntityList[curIndexOfIntermediateEntityList + j].type === EntityType.mention;
+
+                          if (isJthCharMention) {
+                            const jthChar = intermediateEntityList[curIndexOfIntermediateEntityList + j].value;
+                            dividedMentionName.push(jthChar);
+                          } else {
+                            break;
+                          }
+                        }
+
+                        dividedMentionName.forEach(char => 
+                          newEntityList.push(new TextEntity(EntityType.char, char))
+                        );
+
+                        i += dividedMentionName.length;
                       }
                     }
                   }
 
+                  curIndexOfIntermediateEntityList += diffValue.length;
                   break;
+
+                case DiffMatchPatch.DIFF_INSERT:
+                  
+                  // diff 결과로 인서트가 발생하는 경우는 textarea에 직접 문자를 입력했을 때 뿐임.
+                  // 따라서 멘션 처리와 관계없이 새로운 TextEntity만 푸쉬함.
+
+                  for (let i = 0; i < diffValue.length; i++) {
+                    newEntityList.push(new TextEntity(EntityType.char, diffValue[i]));
+                  }
+                  break;
+
+                case DiffMatchPatch.DIFF_DELETE:
+
+                  // 삭제된 스트링은 newEntityList에 추가하지 않으면 됨.
+                  // 스트링에서 하나 이상의 문자를 삭제하면 두 개의 스트링으로 쪼개지거나 혹은 앞뒤가 삭제된 경우 하나의 스트링이 결과로 나오기 때문에
+                  // case EQUAL에서 처리 가능.
+
+                  curIndexOfIntermediateEntityList += diffValue.length;
+                  break;
+                  
                 default:
                   break;
               }
             });
 
-            
-            setEntityList([...entityList]);
+            console.timeEnd('diff');
+            setEntityList(newEntityList);
           }}
           
           onSelect={() => {
+            
+            // 커서 위치 혹은 selection range가 변경될 때마다 호출.
+            // '@' 뒤에 스트링을 입력하면 멘션을 입력하려는 의도라 보고 커서가 바로 그 뒤에 있을 때 친구 리스트를 보여줌.
+
             function setNull() {
               if (tempMentionUsername !== null) {
                 setTempMentionUsername(null);
@@ -241,6 +289,7 @@ function App() {
             const selectionStart = textAreaInput.current.selectionStart;
             const selectionEnd = textAreaInput.current.selectionEnd;
 
+            // 커서가 아닌 하나 이상의 문자가 selection 됐을 때는 멘션 처리 x
             if (selectionStart !== selectionEnd || selectionStart === 0) {
               setNull();
               return;
@@ -249,6 +298,8 @@ function App() {
             const isCursorPositionBeforeEndOfString = selectionStart < entityList.length;
 
             if (isCursorPositionBeforeEndOfString === true) {
+              // 커서 위치가 스트링 중간에 있을 떄
+
               const entityObjAtSelectionStart = getEntityObjByStringIndex(selectionStart);
               const entityObjRightBeforeAtSelectionStart = getEntityObjByStringIndex(selectionStart - 1);
 
@@ -260,28 +311,33 @@ function App() {
                 entityObjAtSelectionStart.type === EntityType.char 
                 && entityObjRightBeforeAtSelectionStart.value === '\n';
 
+              // 커서 바로 뒤는 공백이어야 하지만, 그것이 개행 문자라면 멘션 처리 x
               if (isVeryNextCharWhiteSpace === false || isCurrentCharNewLine === true) {
                 setNull();
                 return;
               }
 
             } else {
-              // cursor is at end of string
+              // 커서 위치가 스트링 끝에 있을 때. (즉, string.length 위치에 있을 때)
               const entityObjRightBeforeAtSelectionStart = getEntityObjByStringIndex(selectionStart - 1);
-
               const isLastCharNewLine = 
                 entityObjRightBeforeAtSelectionStart.type === EntityType.char 
                 && entityObjRightBeforeAtSelectionStart.value === '\n';
 
+              // 마지막 문자가 개행이면 멘션처리 x
               if (isLastCharNewLine === true) {
                 setNull();
                 return;
               }
             }
 
+            // '@' 뒤에 있는 스트링이 maxLengthOfUsername을 초과하면 멘션 처리 x
             const maxLengthOfUsername = 64;
             let curTempMentionUsername = '';
 
+            // 현재 커서 위치에서 -1씩 하면서 curTempMentionUsername 0번째에 인서트.
+            // 그러다가 @를 만나면 curTempMentionuserName으로 친구 목록 검색.
+            // 중간에 개행 문자 만나면 리턴.
             for (let i = 0; i < maxLengthOfUsername; i++) {
               const curIndex = selectionStart - i - 1;
 
@@ -314,23 +370,18 @@ function App() {
             }
           }}
         />
-
-
       </div>
 
       {tempMentionUsername !== null &&
         <FriendList 
-          onClick={(friend) => {
-            friend.name += '\u200B\u200B';
-
+          onClick={(friend) => {            
             const selectionStart = lastSelectionInfo.current.start;
-            const tempMentionLastIndex = intermediateEntityList[selectionStart - 1].index;
+            const tempMentionLastIndex = intermediateEntityList[selectionStart - 1].entityIndex;
             const tempMentionFirstIndex = tempMentionLastIndex - tempMentionUsername.length;
 
             // @tempMentionUsername 문자열 제거 -> Mention Obj로 대체
             entityList.splice(tempMentionFirstIndex, tempMentionUsername.length + 1);
             entityList.splice(tempMentionFirstIndex, 0, new TextEntity(EntityType.mention, friend));
-
             setEntityList([...entityList]);
           }}
           username={tempMentionUsername}
