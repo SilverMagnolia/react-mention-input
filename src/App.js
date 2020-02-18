@@ -1,4 +1,4 @@
-import React, {useState, useRef} from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import './App.css';
 import {
   TextField,
@@ -6,6 +6,8 @@ import {
   makeStyles
 } from '@material-ui/core';
 import DiffMatchPatch from 'diff-match-patch';
+
+const linkify = require('linkifyjs');
 const dmp = new DiffMatchPatch();
 
 const useStyles = makeStyles(theme => ({
@@ -40,6 +42,9 @@ const useStyles = makeStyles(theme => ({
   mentionHighlight: {
     backgroundColor: '#d8dfea',
   },
+  firstUrl: {
+
+  }
 }));
 
 function Friend(name, id) {
@@ -89,10 +94,10 @@ function TextEntity(type, value) {
 function App() {
   const classes = useStyles();
 
-  const [tempMentionUsername, setTempMentionUsername] = useState(null);
-
   // 데이터 소스. plainText와 멘션 하이라이트 처리를 위한 html로 변환됨.
   const [entityList, setEntityList] = useState([]);
+  const [tempMentionUsername, setTempMentionUsername] = useState(null);
+  const [firstURL, setFirstURL] = useState(null);
 
   const textAreaInput = useRef();
   const mentionShadowRef = useRef();
@@ -128,6 +133,33 @@ function App() {
     })
     .join('')+'<br>';
 
+  useEffect(() => {
+    if (entityList.length === 0) {
+      if (firstURL !== null) {
+        setFirstURL(null);
+      }
+      return;
+    }
+
+    // 텍스트 내 url 찾기.
+    const timer = setTimeout(() => {
+      const result = linkify.find(plainText, 'url');
+
+      if (result.length === 0) {
+        if (firstURL !== null) {
+          setFirstURL(null);
+        }
+        return;
+      }
+
+      const urls = result.map(e => e.href);
+      setFirstURL(urls[0]);
+    }, 750);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityList]);
+
   function getEntityObjByStringIndex(strIndex) {
     if (strIndex < 0 || strIndex >= intermediateEntityList.length) {
       return null;
@@ -139,7 +171,11 @@ function App() {
   return (
     <div className="App">
       <div style={{fontSize: 20, fontWeight: 'bold', color: 'red', height: 100}}>
-        {tempMentionUsername || 'null'}
+        mention: {tempMentionUsername || 'null'}
+      </div>
+
+      <div style={{fontSize: 20, fontWeight: 'bold', color: 'blue', height: 100}}>
+        url: {firstURL || 'null'}
       </div>
 
       <div className={classes.wrapper}>
@@ -164,7 +200,7 @@ function App() {
           onScroll={(e) => mentionShadowRef.current.scrollTop = e.target.scrollTop}
           onChange={(e) => {
 
-            console.time('diff');
+            // console.time('diff');
 
             // diffResult에 따라 newEntityList 구성 -> 스테이트 변경. 
 
@@ -265,7 +301,7 @@ function App() {
               }
             });
 
-            console.timeEnd('diff');
+            // console.timeEnd('diff');
             setEntityList(newEntityList);
           }}
           
